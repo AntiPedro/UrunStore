@@ -1,1 +1,1 @@
-# -r-nStore
+ÜrünStore Open Source
