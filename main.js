@@ -312,7 +312,7 @@ autoUpdater.on('checking-for-update', () => {
 });
 
 autoUpdater.on('update-available', (info) => {
-  if (mainWindow) mainWindow.webContents.send('updater:status', { message: 'Yeni bir güncelleme bulundu! İndiriliyor...', type: 'success' });
+  if (mainWindow) mainWindow.webContents.send('updater:status', { message: 'Yeni bir güncelleme bulundu! İndiriliyor...', type: 'start' });
 });
 
 autoUpdater.on('update-not-available', (info) => {
@@ -324,12 +324,13 @@ autoUpdater.on('error', (err) => {
 });
 
 autoUpdater.on('download-progress', (progressObj) => {
-  let log_message = 'Güncelleme İndiriliyor: %' + Math.round(progressObj.percent);
-  if (mainWindow) mainWindow.webContents.send('updater:status', { message: log_message, type: 'info' });
+  let pct = Math.round(progressObj.percent);
+  let log_message = 'İndirilen Veri: %' + pct;
+  if (mainWindow) mainWindow.webContents.send('updater:status', { message: log_message, type: 'progress', percent: pct });
 });
 
 autoUpdater.on('update-downloaded', (info) => {
-  if (mainWindow) mainWindow.webContents.send('updater:status', { message: 'Güncelleme indirildi! Uygulama 3 saniye içinde yeniden başlatılacak.', type: 'success' });
+  if (mainWindow) mainWindow.webContents.send('updater:status', { message: 'Hazır! Yeniden başlatılıyor...', type: 'done' });
   setTimeout(() => {
     autoUpdater.quitAndInstall();
   }, 3000);
