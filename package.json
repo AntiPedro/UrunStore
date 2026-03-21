@@ -36,6 +36,16 @@
       "preload.js",
       "store.html",
       "assets/**/*"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "AntiPedro",
+        "repo": "UrunStore"
+      }
     ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.3"
   }
 }

@@ -1,5 +1,7 @@
-const { app, BrowserWindow, shell, ipcMain, Menu, Tray, nativeImage } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, Menu, Tray, nativeImage, session } = require('electron');
 const path = require('path');
+const os = require('os');
+const { autoUpdater } = require('electron-updater');
 
 // Tek instance kontrolü - sadece bir pencere açılsın
 const gotTheLock = app.requestSingleInstanceLock();
@@ -95,27 +97,6 @@ function createWindow() {
     mainWindow = null;
   });
 
-  // İndirme işlemini takip et (Gerçek zamanlı)
-  mainWindow.webContents.session.on('will-download', (event, item, webContents) => {
-    item.on('updated', (event, state) => {
-      if (state === 'progressing') {
-        const progress = Math.round((item.getReceivedBytes() / item.getTotalBytes()) * 100);
-        mainWindow.webContents.send('download:progress', {
-          filename: item.getFilename(),
-          progress: progress,
-          received: item.getReceivedBytes(),
-          total: item.getTotalBytes()
-        });
-      }
-    });
-
-    item.once('done', (event, state) => {
-      mainWindow.webContents.send('download:complete', {
-        filename: item.getFilename(),
-        state: state
-      });
-    });
-  });
 }
 
 // Uygulama menüsünü özelleştir
@@ -251,10 +232,37 @@ ipcMain.handle('window:isMaximized', () => {
   return mainWindow ? mainWindow.isMaximized() : false;
 });
 
+let hiddenDownloadWindows = [];
+
 // Download handler
 ipcMain.handle('download:start', (event, url) => {
   if (mainWindow) {
-    mainWindow.webContents.downloadURL(url);
+    // We create a hidden browser window. This is crucial because many file hosts
+    // use Javascript or meta-refresh to trigger downloads. downloadURL() does not run JS.
+    let dlWin = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true
+      }
+    });
+    
+    // Set a normal Chrome user agent to prevent blocks
+    dlWin.webContents.userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    
+    // Load the URL to trigger the auto-download via JS
+    dlWin.loadURL(url);
+    
+    hiddenDownloadWindows.push(dlWin);
+
+    // Clean up window when download finishes or fails (handled by global will-download)
+    // We will keep it alive temporarily. We could set a timeout to close it.
+    setTimeout(() => {
+      if(!dlWin.isDestroyed()) {
+         dlWin.close();
+         hiddenDownloadWindows = hiddenDownloadWindows.filter(w => w !== dlWin);
+      }
+    }, 60000); // Allow 60 seconds for JS redirect to trigger the download
   }
 });
 
@@ -263,6 +271,68 @@ app.whenReady().then(() => {
   createMenu();
   createWindow();
   createTray();
+
+  // Otomatik güncellemeleri kontrol et
+  autoUpdater.checkForUpdatesAndNotify();
+
+  // Global indirme dinleyicisi (Sadece BİR KEZ eklenmeli, böylece duplicate engellenir)
+  session.defaultSession.on('will-download', (event, item, webContents) => {
+    // İndirmeyi doğrudan masaüstüne kaydet (farklı kaydet sorma)
+    const desktopPath = path.join(os.homedir(), 'Desktop');
+    item.setSavePath(path.join(desktopPath, item.getFilename()));
+
+    item.on('updated', (event, state) => {
+      if (state === 'progressing') {
+        const progress = Math.round((item.getReceivedBytes() / item.getTotalBytes()) * 100) || 0;
+        if (mainWindow) {
+          mainWindow.webContents.send('download:progress', {
+            filename: item.getFilename(),
+            progress: progress,
+            received: item.getReceivedBytes(),
+            total: item.getTotalBytes()
+          });
+        }
+      }
+    });
+
+    item.once('done', (event, state) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('download:complete', {
+          filename: item.getFilename(),
+          state: state
+        });
+      }
+    });
+  });
+});
+
+// AutoUpdater Olayları
+autoUpdater.on('checking-for-update', () => {
+  if (mainWindow) mainWindow.webContents.send('updater:status', { message: 'Güncellemeler kontrol ediliyor...', type: 'info' });
+});
+
+autoUpdater.on('update-available', (info) => {
+  if (mainWindow) mainWindow.webContents.send('updater:status', { message: 'Yeni bir güncelleme bulundu! İndiriliyor...', type: 'success' });
+});
+
+autoUpdater.on('update-not-available', (info) => {
+  if (mainWindow) mainWindow.webContents.send('updater:status', { message: 'Uygulama zaten en güncel sürümde.', type: 'info' });
+});
+
+autoUpdater.on('error', (err) => {
+  if (mainWindow) mainWindow.webContents.send('updater:status', { message: 'Güncelleme hatası: ' + err.message, type: 'error' });
+});
+
+autoUpdater.on('download-progress', (progressObj) => {
+  let log_message = 'Güncelleme İndiriliyor: %' + Math.round(progressObj.percent);
+  if (mainWindow) mainWindow.webContents.send('updater:status', { message: log_message, type: 'info' });
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  if (mainWindow) mainWindow.webContents.send('updater:status', { message: 'Güncelleme indirildi! Uygulama 3 saniye içinde yeniden başlatılacak.', type: 'success' });
+  setTimeout(() => {
+    autoUpdater.quitAndInstall();
+  }, 3000);
 });
 
 // İkinci instance açılmaya çalışıldığında

@@ -17,5 +17,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // İndirme işlemleri
   startDownload: (url) => ipcRenderer.invoke('download:start', url),
   onDownloadProgress: (callback) => ipcRenderer.on('download:progress', (event, data) => callback(data)),
-  onDownloadComplete: (callback) => ipcRenderer.on('download:complete', (event, data) => callback(data))
+  onDownloadComplete: (callback) => ipcRenderer.on('download:complete', (event, data) => callback(data)),
+
+  // Güncelleme Bildirimleri
+  onUpdaterStatus: (callback) => ipcRenderer.on('updater:status', (event, data) => callback(data))
 });
